@@ -6,6 +6,9 @@ from PIL import Image
 import numpy as np
 import random
 from matplotlib import pyplot as plt
+from pywinauto import application
+import time
+import imageio
 
 
 width = 380
@@ -19,10 +22,14 @@ font_hintings = ["normal", "autohint", "none"]
 font_hinting = 0
 
 exit = False
+frame = 0
 
+out_path = "export"
+path = None
 
-def convert_pixel_val(pixel_val):
-    #pixel_val = 255 - pixel_val
+def convert_pixel_val(pixel_val, invert=False):
+    if invert:
+        pixel_val = 255 - pixel_val
 
     char_list = [(".", "'", "´", ","), (":", ";", '"', "-", "~", "_"), ("<", ">", "+", "*", "i", "/", "\\", "(", ")"),
                  ("o", "a", "e", "5", "p", "d"), ("&", "#", "§", "8", "ß", "@")]
@@ -35,10 +42,10 @@ def convert_pixel_val(pixel_val):
             idx = len(char_list) - 1
         return random.choice(char_list[idx])
 
-def convert_row(row):
+def convert_row(row, invert=False):
     ascii_row = ""
     for i in range(row.shape[0]):
-        ascii_row += "[color=%d]"+convert_pixel_val(row[i])+"[/color]"
+        ascii_row += "[color=%d]"+convert_pixel_val(row[i], invert=invert)+"[/color]"
     return ascii_row
 
 def color_from_rgb(col):
@@ -51,7 +58,7 @@ def color_from_rgb(col):
 def load_and_preprocess(img_path):
     global width
     global height
-    img = Image.open(im_path)
+    img = Image.open(img_path)
     size = img.size
 
     resize_ratio = min(width / (size[0] * cell_height / cell_width), height / size[1])
@@ -110,27 +117,61 @@ def setup_terminal():
     setup_font()
     blt.refresh()
 
+def save_image(plot=False):
+    global frame
+    global path
 
+    time.sleep(0.1)
+    app = application.Application().connect(title_re="ASCII")
+    img = app.ASCII.capture_as_image()
+    size = img.size
+    img = img.crop((12,34,size[0]-12,size[1]-12))
+    if plot:
+        plot_image(np.array(img))
 
+    if path is None:
+        tmp = in_path.split(os.path.sep)[-1].split(".")[0]
+        path = os.path.join(os.getcwd(), out_path, tmp+"-export-"+time.strftime("%Y%m%d-%H%M%S"))
+        print("export path: "+path)
+        os.makedirs(path)
+
+    img.save(os.path.join(path, str(frame)+".png"))
+
+def display_frame(grey, color, invert=False):
+    global frame
+    for i in range(grey.shape[0]):
+        row = convert_row(grey[i, :], invert=invert)
+        blt.puts(0, i, row % tuple(color[i, :]))
+    blt.refresh()
+    frame += 1
+
+def create_gif():
+    global path
+    images = []
+    filenames = os.listdir(path)
+    for filename in filenames:
+        images.append(imageio.imread(os.path.join(path, filename)))
+    imageio.mimsave(os.path.join(path, "export.gif"), images)
 
 
 
 if __name__ == "__main__":
-    [_, im_path] = sys.argv
-    color, grey = load_and_preprocess(im_path)
+    [_, in_path] = sys.argv
+    color, grey = load_and_preprocess(in_path)
 
     setup_terminal()
     while not exit:
         blt.clear()
         blt.color("white")
 
-        for i in range(grey.shape[0]):
-            row = convert_row(grey[i,:])
-            blt.puts(0, i, row % tuple(color[i,:]))
+        if frame >= 0:
+            display_frame(grey, color, invert=False)
+            save_image()
         blt.refresh()
 
         handle_key_presses(blt.read())
 
     blt.close()
+    create_gif()
 
 
